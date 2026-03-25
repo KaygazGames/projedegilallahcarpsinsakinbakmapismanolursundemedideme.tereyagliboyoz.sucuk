@@ -2,7 +2,7 @@
 <html lang="tr">
 <head>
 <meta charset="UTF-8">
-<title>MR Analiz (Stable)</title>
+<title>MR Ön Analiz (Medikal Rapor)</title>
 
 <script src="https://docs.opencv.org/4.x/opencv.js"></script>
 
@@ -18,17 +18,26 @@ canvas {
     border: 2px solid #38bdf8;
 }
 #report {
-    background: #1e293b;
-    padding: 15px;
+    background: #020617;
+    padding: 20px;
     margin-top: 20px;
     border-radius: 10px;
+    text-align: left;
+    max-width: 800px;
+    margin-inline: auto;
+    line-height: 1.6;
+    border: 1px solid #334155;
+}
+h3 {
+    border-bottom: 1px solid #334155;
+    padding-bottom: 5px;
 }
 </style>
 </head>
 
 <body>
 
-<h2>🧠 MR Ön Analiz (Stable)</h2>
+<h2>🧠 MR Görüntü Ön Değerlendirme Sistemi</h2>
 
 <input type="file" id="fileInput">
 
@@ -37,32 +46,27 @@ canvas {
 <canvas id="original"></canvas>
 <canvas id="processed"></canvas>
 
-<div id="report">Hazır...</div>
+<div id="report">Sistem hazır...</div>
 
 <script>
 let cvReady = false;
 
-// 🔥 OpenCV load fix
 function waitForCV() {
     if (typeof cv !== "undefined" && cv.Mat) {
         cvReady = true;
-        console.log("✅ OpenCV hazır");
     } else {
         setTimeout(waitForCV, 100);
     }
 }
 waitForCV();
 
-// File input
 document.getElementById("fileInput").addEventListener("change", (e) => {
     if (!cvReady) {
-        alert("OpenCV henüz yüklenmedi, 1-2 saniye bekle.");
+        alert("Sistem yükleniyor, lütfen bekleyin.");
         return;
     }
 
     const file = e.target.files[0];
-    if (!file) return;
-
     const img = new Image();
     img.src = URL.createObjectURL(file);
 
@@ -90,11 +94,11 @@ function processImage(img) {
 
     let contours = new cv.MatVector();
     let hierarchy = new cv.Mat();
-
     cv.findContours(thresh, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
 
     let suspiciousCount = 0;
     let totalArea = 0;
+    let maxArea = 0;
 
     for (let i = 0; i < contours.size(); i++) {
         let cnt = contours.get(i);
@@ -103,6 +107,7 @@ function processImage(img) {
         if (area > 500) {
             suspiciousCount++;
             totalArea += area;
+            if (area > maxArea) maxArea = area;
 
             let rect = cv.boundingRect(cnt);
 
@@ -118,28 +123,64 @@ function processImage(img) {
 
     cv.imshow("processed", src);
 
-    // Report
-    let report = "";
+    generateMedicalReport(suspiciousCount, totalArea, maxArea);
 
-    if (suspiciousCount === 0) {
-        report = "✅ Anormal bulgu yok | Risk: DÜŞÜK";
+    src.delete(); gray.delete(); blur.delete();
+    thresh.delete(); contours.delete(); hierarchy.delete();
+}
+
+
+// 🧠 Doktor tarzı rapor
+function generateMedicalReport(count, totalArea, maxArea) {
+
+    let report = `
+    <h3>📄 RADYOLOJİ ÖN DEĞERLENDİRME RAPORU</h3>
+
+    <b>İnceleme:</b> Manyetik Rezonans Görüntüleme (MR)<br>
+    <b>Analiz Tipi:</b> Otomatik Görüntü İşleme (AI destekli ön analiz)<br><br>
+
+    <h3>🔍 Bulgular</h3>
+    `;
+
+    if (count === 0) {
+        report += `
+        Görüntüde belirgin patolojik yoğunluk artışı veya anormal yapı izlenmemiştir.
+        `;
     } else {
-        let avg = totalArea / suspiciousCount;
-        let risk = avg > 1500 ? "YÜKSEK" : "ORTA";
+        let avg = totalArea / count;
 
-        report = `
-        ⚠️ ${suspiciousCount} şüpheli bölge<br>
-        Ortalama alan: ${avg.toFixed(2)}<br>
-        Risk: ${risk}<br>
-        <small>Demo sistemidir</small>
+        report += `
+        Görüntüde ${count} adet şüpheli yoğunluk bölgesi tespit edilmiştir.<br>
+        Ortalama lezyon alanı: ${avg.toFixed(2)} px<br>
+        En büyük lezyon alanı: ${maxArea.toFixed(2)} px<br><br>
+
+        Tespit edilen bölgeler morfolojik olarak heterojen yapı gösterebilir.
         `;
     }
 
-    document.getElementById("report").innerHTML = report;
+    report += `<h3>🧠 Yorum</h3>`;
 
-    // cleanup
-    src.delete(); gray.delete(); blur.delete();
-    thresh.delete(); contours.delete(); hierarchy.delete();
+    if (count === 0) {
+        report += `
+        Mevcut analizde anlamlı bir anormallik saptanmamıştır. Klinik bulgular ile korelasyon önerilir.
+        `;
+    } else {
+        let risk = "orta";
+        if (maxArea > 2000) risk = "yüksek";
+
+        report += `
+        Bulgular ${risk} risk kategorisinde değerlendirilebilir. 
+        Daha ileri görüntüleme ve uzman değerlendirmesi önerilir.
+        `;
+    }
+
+    report += `
+    <h3>⚠️ Sonuç ve Öneri</h3>
+    Bu sistem yalnızca otomatik ön analiz amaçlıdır ve kesin tanı yerine geçmez.<br>
+    Klinik değerlendirme için radyoloji uzmanına başvurulmalıdır.
+    `;
+
+    document.getElementById("report").innerHTML = report;
 }
 </script>
 
