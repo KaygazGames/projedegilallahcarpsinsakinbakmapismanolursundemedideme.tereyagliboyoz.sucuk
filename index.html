@@ -2,31 +2,33 @@
 <html lang="tr">
 <head>
 <meta charset="UTF-8">
-<title>MR Ön Analiz Sistemi (PoC)</title>
-<script async src="https://docs.opencv.org/4.x/opencv.js"></script>
+<title>MR Analiz (Stable)</title>
+
+<script src="https://docs.opencv.org/4.x/opencv.js"></script>
+
 <style>
-    body {
-        font-family: Arial;
-        background: #0f172a;
-        color: white;
-        text-align: center;
-    }
-    canvas {
-        margin: 10px;
-        border: 2px solid #38bdf8;
-    }
-    #report {
-        background: #1e293b;
-        padding: 15px;
-        margin-top: 20px;
-        border-radius: 10px;
-    }
+body {
+    font-family: Arial;
+    background: #0f172a;
+    color: white;
+    text-align: center;
+}
+canvas {
+    margin: 10px;
+    border: 2px solid #38bdf8;
+}
+#report {
+    background: #1e293b;
+    padding: 15px;
+    margin-top: 20px;
+    border-radius: 10px;
+}
 </style>
 </head>
 
 <body>
 
-<h1>🧠 MR Görüntü Ön Analiz Sistemi</h1>
+<h2>🧠 MR Ön Analiz (Stable)</h2>
 
 <input type="file" id="fileInput">
 
@@ -35,55 +37,60 @@
 <canvas id="original"></canvas>
 <canvas id="processed"></canvas>
 
-<div id="report">Rapor burada görünecek...</div>
+<div id="report">Hazır...</div>
 
 <script>
 let cvReady = false;
 
-cv['onRuntimeInitialized'] = () => {
-    cvReady = true;
-    console.log("OpenCV hazır");
-};
+// 🔥 OpenCV load fix
+function waitForCV() {
+    if (typeof cv !== "undefined" && cv.Mat) {
+        cvReady = true;
+        console.log("✅ OpenCV hazır");
+    } else {
+        setTimeout(waitForCV, 100);
+    }
+}
+waitForCV();
 
-document.getElementById('fileInput').addEventListener('change', function(e) {
+// File input
+document.getElementById("fileInput").addEventListener("change", (e) => {
     if (!cvReady) {
-        alert("OpenCV henüz yüklenmedi");
+        alert("OpenCV henüz yüklenmedi, 1-2 saniye bekle.");
         return;
     }
 
     const file = e.target.files[0];
+    if (!file) return;
+
     const img = new Image();
     img.src = URL.createObjectURL(file);
 
-    img.onload = function() {
-        processImage(img);
-    };
+    img.onload = () => processImage(img);
 });
 
-function processImage(imgElement) {
-    let canvas = document.getElementById('original');
-    let ctx = canvas.getContext('2d');
+function processImage(img) {
 
-    canvas.width = imgElement.width;
-    canvas.height = imgElement.height;
+    let canvas = document.getElementById("original");
+    let ctx = canvas.getContext("2d");
 
-    ctx.drawImage(imgElement, 0, 0);
+    canvas.width = img.width;
+    canvas.height = img.height;
+    ctx.drawImage(img, 0, 0);
 
     let src = cv.imread(canvas);
     let gray = new cv.Mat();
     cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
 
-    // Blur
     let blur = new cv.Mat();
     cv.GaussianBlur(gray, blur, new cv.Size(5,5), 0);
 
-    // Otsu threshold
     let thresh = new cv.Mat();
     cv.threshold(blur, thresh, 0, 255, cv.THRESH_BINARY + cv.THRESH_OTSU);
 
-    // Kontur bulma
     let contours = new cv.MatVector();
     let hierarchy = new cv.Mat();
+
     cv.findContours(thresh, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
 
     let suspiciousCount = 0;
@@ -98,7 +105,9 @@ function processImage(imgElement) {
             totalArea += area;
 
             let rect = cv.boundingRect(cnt);
-            cv.rectangle(src,
+
+            cv.rectangle(
+                src,
                 new cv.Point(rect.x, rect.y),
                 new cv.Point(rect.x + rect.width, rect.y + rect.height),
                 [255, 0, 0, 255],
@@ -107,32 +116,28 @@ function processImage(imgElement) {
         }
     }
 
-    // Sonuç çiz
-    let outputCanvas = document.getElementById('processed');
-    cv.imshow(outputCanvas, src);
+    cv.imshow("processed", src);
 
-    // Rapor oluştur
-    let reportText = "";
+    // Report
+    let report = "";
 
     if (suspiciousCount === 0) {
-        reportText = "✅ Anormal bulgu tespit edilmedi.<br>Risk: DÜŞÜK";
+        report = "✅ Anormal bulgu yok | Risk: DÜŞÜK";
     } else {
-        let avgArea = totalArea / suspiciousCount;
+        let avg = totalArea / suspiciousCount;
+        let risk = avg > 1500 ? "YÜKSEK" : "ORTA";
 
-        let risk = "ORTA";
-        if (avgArea > 1500) risk = "YÜKSEK";
-
-        reportText = `
-        ⚠️ ${suspiciousCount} adet şüpheli bölge bulundu.<br>
-        Ortalama alan: ${avgArea.toFixed(2)}<br>
-        Risk seviyesi: ${risk}<br><br>
-        <small>Bu sistem yalnızca ön analiz amaçlıdır.</small>
+        report = `
+        ⚠️ ${suspiciousCount} şüpheli bölge<br>
+        Ortalama alan: ${avg.toFixed(2)}<br>
+        Risk: ${risk}<br>
+        <small>Demo sistemidir</small>
         `;
     }
 
-    document.getElementById("report").innerHTML = reportText;
+    document.getElementById("report").innerHTML = report;
 
-    // Cleanup
+    // cleanup
     src.delete(); gray.delete(); blur.delete();
     thresh.delete(); contours.delete(); hierarchy.delete();
 }
