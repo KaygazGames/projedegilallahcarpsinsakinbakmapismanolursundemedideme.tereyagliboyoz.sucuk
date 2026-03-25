@@ -1,0 +1,11 @@
+{
+  "patient": "Anonim",
+  "scan_type": "Alt Ekstremite Görüntüleme",
+  "findings": [
+    {
+      "desc": "Tibia distal bölgede kırık hattı izlenmektedir",
+      "risk": "Yüksek"
+    }
+  ],
+  "conclusion": "Kırık ile uyumlu bulgular mevcuttur. Ortopedik değerlendirme önerilir."
+}
