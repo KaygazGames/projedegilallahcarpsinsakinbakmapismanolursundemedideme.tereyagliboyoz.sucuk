@@ -1,9 +1,9 @@
 {
   "patient": "Anonim",
-  "scan_type": "Alt Ekstremite Görüntüleme",
+  "scan_type": "Görüntüleme",
   "findings": [
     {
-      "desc": "Tibia distal bölgede kırık hattı izlenmektedir",
+      "desc": "Kırık hattı izlenmektedir",
       "risk": "Yüksek"
     }
   ],
