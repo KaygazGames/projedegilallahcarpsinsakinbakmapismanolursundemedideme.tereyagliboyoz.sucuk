@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<title>MR Ön Analiz Sistemi (PoC)</title>
+<script async src="https://docs.opencv.org/4.x/opencv.js"></script>
+<style>
+    body {
+        font-family: Arial;
+        background: #0f172a;
+        color: white;
+        text-align: center;
+    }
+    canvas {
+        margin: 10px;
+        border: 2px solid #38bdf8;
+    }
+    #report {
+        background: #1e293b;
+        padding: 15px;
+        margin-top: 20px;
+        border-radius: 10px;
+    }
+</style>
+</head>
+
+<body>
+
+<h1>🧠 MR Görüntü Ön Analiz Sistemi</h1>
+
+<input type="file" id="fileInput">
+
+<br><br>
+
+<canvas id="original"></canvas>
+<canvas id="processed"></canvas>
+
+<div id="report">Rapor burada görünecek...</div>
+
+<script>
+let cvReady = false;
+
+cv['onRuntimeInitialized'] = () => {
+    cvReady = true;
+    console.log("OpenCV hazır");
+};
+
+document.getElementById('fileInput').addEventListener('change', function(e) {
+    if (!cvReady) {
+        alert("OpenCV henüz yüklenmedi");
+        return;
+    }
+
+    const file = e.target.files[0];
+    const img = new Image();
+    img.src = URL.createObjectURL(file);
+
+    img.onload = function() {
+        processImage(img);
+    };
+});
+
+function processImage(imgElement) {
+    let canvas = document.getElementById('original');
+    let ctx = canvas.getContext('2d');
+
+    canvas.width = imgElement.width;
+    canvas.height = imgElement.height;
+
+    ctx.drawImage(imgElement, 0, 0);
+
+    let src = cv.imread(canvas);
+    let gray = new cv.Mat();
+    cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+
+    // Blur
+    let blur = new cv.Mat();
+    cv.GaussianBlur(gray, blur, new cv.Size(5,5), 0);
+
+    // Otsu threshold
+    let thresh = new cv.Mat();
+    cv.threshold(blur, thresh, 0, 255, cv.THRESH_BINARY + cv.THRESH_OTSU);
+
+    // Kontur bulma
+    let contours = new cv.MatVector();
+    let hierarchy = new cv.Mat();
+    cv.findContours(thresh, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+
+    let suspiciousCount = 0;
+    let totalArea = 0;
+
+    for (let i = 0; i < contours.size(); i++) {
+        let cnt = contours.get(i);
+        let area = cv.contourArea(cnt);
+
+        if (area > 500) {
+            suspiciousCount++;
+            totalArea += area;
+
+            let rect = cv.boundingRect(cnt);
+            cv.rectangle(src,
+                new cv.Point(rect.x, rect.y),
+                new cv.Point(rect.x + rect.width, rect.y + rect.height),
+                [255, 0, 0, 255],
+                2
+            );
+        }
+    }
+
+    // Sonuç çiz
+    let outputCanvas = document.getElementById('processed');
+    cv.imshow(outputCanvas, src);
+
+    // Rapor oluştur
+    let reportText = "";
+
+    if (suspiciousCount === 0) {
+        reportText = "✅ Anormal bulgu tespit edilmedi.<br>Risk: DÜŞÜK";
+    } else {
+        let avgArea = totalArea / suspiciousCount;
+
+        let risk = "ORTA";
+        if (avgArea > 1500) risk = "YÜKSEK";
+
+        reportText = `
+        ⚠️ ${suspiciousCount} adet şüpheli bölge bulundu.<br>
+        Ortalama alan: ${avgArea.toFixed(2)}<br>
+        Risk seviyesi: ${risk}<br><br>
+        <small>Bu sistem yalnızca ön analiz amaçlıdır.</small>
+        `;
+    }
+
+    document.getElementById("report").innerHTML = reportText;
+
+    // Cleanup
+    src.delete(); gray.delete(); blur.delete();
+    thresh.delete(); contours.delete(); hierarchy.delete();
+}
+</script>
+
+</body>
+</html>
