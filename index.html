@@ -2,42 +2,49 @@
 <html lang="tr">
 <head>
 <meta charset="UTF-8">
-<title>MR Ön Analiz (Medikal Rapor)</title>
+<title>AI MR Ön Analiz Sistemi</title>
 
 <script src="https://docs.opencv.org/4.x/opencv.js"></script>
 
 <style>
 body {
     font-family: Arial;
-    background: #0f172a;
-    color: white;
+    background: #020617;
+    color: #e2e8f0;
     text-align: center;
 }
+
+h2 {
+    color: #38bdf8;
+}
+
 canvas {
     margin: 10px;
     border: 2px solid #38bdf8;
+    max-width: 90%;
 }
+
 #report {
     background: #020617;
     padding: 20px;
     margin-top: 20px;
     border-radius: 10px;
     text-align: left;
-    max-width: 800px;
+    max-width: 900px;
     margin-inline: auto;
-    line-height: 1.6;
     border: 1px solid #334155;
+    line-height: 1.6;
 }
+
 h3 {
     border-bottom: 1px solid #334155;
-    padding-bottom: 5px;
 }
 </style>
 </head>
 
 <body>
 
-<h2>🧠 MR Görüntü Ön Değerlendirme Sistemi</h2>
+<h2>🧠 AI Destekli MR Ön Analiz Sistemi</h2>
 
 <input type="file" id="fileInput">
 
@@ -46,27 +53,57 @@ h3 {
 <canvas id="original"></canvas>
 <canvas id="processed"></canvas>
 
-<div id="report">Sistem hazır...</div>
+<div id="report">Sistem yükleniyor...</div>
 
 <script>
 let cvReady = false;
 
+// OpenCV load fix
 function waitForCV() {
     if (typeof cv !== "undefined" && cv.Mat) {
         cvReady = true;
+        document.getElementById("report").innerHTML = "Sistem hazır. Görüntü yükleyin.";
     } else {
         setTimeout(waitForCV, 100);
     }
 }
 waitForCV();
 
+// ROI crop (beyin bölgesi approx)
+function cropCenter(mat) {
+    let w = mat.cols;
+    let h = mat.rows;
+
+    let x = Math.floor(w * 0.15);
+    let y = Math.floor(h * 0.15);
+    let cw = Math.floor(w * 0.7);
+    let ch = Math.floor(h * 0.7);
+
+    return mat.roi(new cv.Rect(x, y, cw, ch));
+}
+
+// Shape filter
+function isValidShape(cnt) {
+    let perimeter = cv.arcLength(cnt, true);
+    let area = cv.contourArea(cnt);
+
+    if (perimeter === 0) return false;
+
+    let circularity = (4 * Math.PI * area) / (perimeter * perimeter);
+
+    return circularity > 0.45;
+}
+
 document.getElementById("fileInput").addEventListener("change", (e) => {
+
     if (!cvReady) {
-        alert("Sistem yükleniyor, lütfen bekleyin.");
+        alert("Sistem henüz hazır değil.");
         return;
     }
 
     const file = e.target.files[0];
+    if (!file) return;
+
     const img = new Image();
     img.src = URL.createObjectURL(file);
 
@@ -82,7 +119,9 @@ function processImage(img) {
     canvas.height = img.height;
     ctx.drawImage(img, 0, 0);
 
-    let src = cv.imread(canvas);
+    let srcFull = cv.imread(canvas);
+    let src = cropCenter(srcFull);
+
     let gray = new cv.Mat();
     cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
 
@@ -92,96 +131,101 @@ function processImage(img) {
     let thresh = new cv.Mat();
     cv.threshold(blur, thresh, 0, 255, cv.THRESH_BINARY + cv.THRESH_OTSU);
 
+    // Edge detection
+    let edges = new cv.Mat();
+    cv.Canny(gray, edges, 50, 150);
+
+    cv.bitwise_and(thresh, edges, thresh);
+
     let contours = new cv.MatVector();
     let hierarchy = new cv.Mat();
     cv.findContours(thresh, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
 
-    let suspiciousCount = 0;
-    let totalArea = 0;
-    let maxArea = 0;
+    let suspicious = [];
+    let meanGlobal = cv.mean(gray)[0];
 
     for (let i = 0; i < contours.size(); i++) {
         let cnt = contours.get(i);
         let area = cv.contourArea(cnt);
 
-        if (area > 500) {
-            suspiciousCount++;
-            totalArea += area;
-            if (area > maxArea) maxArea = area;
+        if (area > 400 && isValidShape(cnt)) {
 
             let rect = cv.boundingRect(cnt);
+            let roi = gray.roi(rect);
+            let intensity = cv.mean(roi)[0];
 
-            cv.rectangle(
-                src,
-                new cv.Point(rect.x, rect.y),
-                new cv.Point(rect.x + rect.width, rect.y + rect.height),
-                [255, 0, 0, 255],
-                2
-            );
+            if (Math.abs(intensity - meanGlobal) > 15) {
+                suspicious.push({area, rect, intensity});
+            }
         }
+    }
+
+    // çizim
+    for (let r of suspicious) {
+        cv.rectangle(
+            src,
+            new cv.Point(r.rect.x, r.rect.y),
+            new cv.Point(r.rect.x + r.rect.width, r.rect.y + r.rect.height),
+            [255, 0, 0, 255],
+            2
+        );
     }
 
     cv.imshow("processed", src);
 
-    generateMedicalReport(suspiciousCount, totalArea, maxArea);
+    generateReport(suspicious);
 
-    src.delete(); gray.delete(); blur.delete();
-    thresh.delete(); contours.delete(); hierarchy.delete();
+    // cleanup
+    srcFull.delete(); src.delete(); gray.delete();
+    blur.delete(); thresh.delete(); edges.delete();
+    contours.delete(); hierarchy.delete();
 }
 
 
-// 🧠 Doktor tarzı rapor
-function generateMedicalReport(count, totalArea, maxArea) {
+// 🧠 MEDICAL REPORT
+function generateReport(regions) {
 
     let report = `
-    <h3>📄 RADYOLOJİ ÖN DEĞERLENDİRME RAPORU</h3>
+    <h3>📄 RADYOLOJİ ÖN ANALİZ RAPORU</h3>
 
-    <b>İnceleme:</b> Manyetik Rezonans Görüntüleme (MR)<br>
-    <b>Analiz Tipi:</b> Otomatik Görüntü İşleme (AI destekli ön analiz)<br><br>
+    <b>İnceleme:</b> MR Görüntü Analizi<br>
+    <b>Yöntem:</b> Görüntü işleme + heuristik analiz<br><br>
 
     <h3>🔍 Bulgular</h3>
     `;
 
-    if (count === 0) {
-        report += `
-        Görüntüde belirgin patolojik yoğunluk artışı veya anormal yapı izlenmemiştir.
-        `;
+    if (regions.length === 0) {
+        report += `Belirgin anormal yoğunluk saptanmadı.`;
     } else {
-        let avg = totalArea / count;
+        let avg = regions.reduce((a,b)=>a+b.area,0)/regions.length;
+        let max = Math.max(...regions.map(r=>r.area));
 
         report += `
-        Görüntüde ${count} adet şüpheli yoğunluk bölgesi tespit edilmiştir.<br>
-        Ortalama lezyon alanı: ${avg.toFixed(2)} px<br>
-        En büyük lezyon alanı: ${maxArea.toFixed(2)} px<br><br>
-
-        Tespit edilen bölgeler morfolojik olarak heterojen yapı gösterebilir.
+        ${regions.length} adet şüpheli yapı tespit edildi.<br>
+        Ortalama alan: ${avg.toFixed(1)} px<br>
+        Maksimum alan: ${max.toFixed(1)} px<br>
         `;
     }
 
     report += `<h3>🧠 Yorum</h3>`;
 
-    if (count === 0) {
-        report += `
-        Mevcut analizde anlamlı bir anormallik saptanmamıştır. Klinik bulgular ile korelasyon önerilir.
-        `;
+    if (regions.length === 0) {
+        report += `Analiz kapsamında belirgin patolojik bulgu izlenmemiştir.`;
     } else {
-        let risk = "orta";
-        if (maxArea > 2000) risk = "yüksek";
+        let max = Math.max(...regions.map(r=>r.area));
+        let risk = max > 2000 ? "yüksek" : "orta";
 
-        report += `
-        Bulgular ${risk} risk kategorisinde değerlendirilebilir. 
-        Daha ileri görüntüleme ve uzman değerlendirmesi önerilir.
-        `;
+        report += `Bulgular ${risk} risk kategorisinde değerlendirilebilir.`;
     }
 
     report += `
-    <h3>⚠️ Sonuç ve Öneri</h3>
-    Bu sistem yalnızca otomatik ön analiz amaçlıdır ve kesin tanı yerine geçmez.<br>
-    Klinik değerlendirme için radyoloji uzmanına başvurulmalıdır.
+    <h3>⚠️ Sonuç</h3>
+    Bu sistem yalnızca ön analiz amaçlıdır. Klinik tanı yerine geçmez.
     `;
 
     document.getElementById("report").innerHTML = report;
 }
+
 </script>
 
 </body>
